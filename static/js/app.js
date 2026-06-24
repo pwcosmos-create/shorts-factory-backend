@@ -40,44 +40,7 @@ toggleKeyBtn?.addEventListener("click", () => {
   toggleKeyBtn.textContent = isPassword ? "숨기기" : "보기";
 });
 
-loadExampleBtn?.addEventListener("click", async () => {
-  const apiKey = apiKeyInput.value.trim();
-  const bizName = businessNameInput.value.trim();
-  const keywordsVal = keywordsInput ? keywordsInput.value.trim() : "";
-  
-  if (!apiKey || !bizName) {
-    alert("API 키와 매장명을 먼저 입력해주세요.");
-    return;
-  }
-  
-  const originalText = loadExampleBtn.textContent;
-  loadExampleBtn.textContent = "불러오는 중...";
-  loadExampleBtn.disabled = true;
-  
-  try {
-    const res = await fetch("/api/v1/shorts/generate-concept-example", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        credentials: { api_key: apiKey },
-        business_name: bizName,
-        keywords: keywordsVal
-      })
-    });
-    
-    const data = await res.json();
-    if (res.ok && data.example) {
-      businessConceptInput.value = data.example;
-    } else {
-      alert("예시를 불러오는데 실패했습니다.");
-    }
-  } catch (e) {
-    alert("예시 불러오기 오류가 발생했습니다.");
-  } finally {
-    loadExampleBtn.textContent = originalText;
-    loadExampleBtn.disabled = false;
-  }
-});
+// load-example-btn logic removed
 
 form?.addEventListener("submit", async (e) => {
   e.preventDefault();
