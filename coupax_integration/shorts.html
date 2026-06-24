@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>숏폼공장 — 소상공인 AI 숏폼 | 머니인사이트</title>
+<meta name="description" content="소상공인 매장 홍보용 9:16 숏폼을 Gemini·Imagen·Veo·Lyria 파이프라인으로 자동 생성합니다.">
+<link rel="canonical" href="https://coupax.co.kr/shorts">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css?v=20260604a">
+<link rel="stylesheet" href="/static/shorts.css">
+</head>
+<body class="shorts-page">
+<div class="wrap">
+  <header>
+    <a href="/" class="logo" aria-label="머니인사이트 홈">
+      <img src="/static/logo.png" alt="" class="logo-mark" width="40" height="40">
+      <span class="logo-text">머니인사이트</span>
+    </a>
+    <nav class="top-nav">
+      <a href="/">홈</a>
+      <a href="/blog">블로그</a>
+      <a href="/shorts" class="is-active">숏폼공장</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero-box">
+      <h1>숏폼공장</h1>
+      <p>소상공인 사장님을 위한 <strong>9:16 숏폼 홍보 영상</strong> 자동 생성 도구입니다. Gemini 시나리오 · Imagen 이미지 · Veo 영상 · Lyria BGM을 한 번에 돌립니다.</p>
+      <p class="hero-meta">BYOK(본인 Google AI 키) · 서버 비용 없음 · <a href="/" class="hero-inline-link">머니인사이트 홈</a></p>
+      <div class="shorts-pipeline-chips">
+        <span class="shorts-chip"><strong>Gemini</strong> 시나리오</span>
+        <span class="shorts-chip"><strong>Imagen 3</strong> 9:16</span>
+        <span class="shorts-chip"><strong>Veo 3.1</strong> 영상</span>
+        <span class="shorts-chip"><strong>Lyria</strong> BGM</span>
+      </div>
+    </section>
+
+    <div class="shorts-layout">
+      <section class="shorts-panel">
+        <h2>숏폼 생성하기</h2>
+        <p class="shorts-panel-lead">매장 정보를 입력하고 파이프라인을 실행하세요.</p>
+
+        <div class="shorts-preview-wrap">
+          <div class="shorts-phone" id="hero-phone">
+            <div class="shorts-phone-notch"></div>
+            <div class="shorts-phone-screen" id="phone-screen">
+              <div class="shorts-phone-scene active">Scene 1</div>
+              <div class="shorts-phone-scene">Scene 2</div>
+              <div class="shorts-phone-scene">Scene 3</div>
+              <div class="shorts-phone-caption" id="hero-caption">치즈 폭포의 향연!</div>
+            </div>
+          </div>
+        </div>
+
+        <form id="generate-form" class="shorts-form">
+          <label for="api-key">Google AI API 키 <span style="color:#ea4335">*</span></label>
+          <div class="shorts-api-row">
+            <input type="password" id="api-key" placeholder="AIza..." autocomplete="off" required>
+            <button type="button" class="shorts-toggle-key" id="toggle-key">보기</button>
+          </div>
+          <p class="shorts-note">API 키는 브라우저에서만 API로 전송되며 서버에 저장되지 않습니다.</p>
+
+          <label for="business-name">매장명 <span style="color:#ea4335">*</span></label>
+          <input type="text" id="business-name" placeholder="예: 대박 돈까스" required>
+
+          <label for="business-concept">매장 컨셉 / 핵심 메뉴 <span style="color:#ea4335">*</span></label>
+          <textarea id="business-concept" placeholder="예: 100% 수제 제주 흑돼지 치즈 돈까스" required></textarea>
+
+          <div class="form-row-split">
+            <div>
+              <label for="video-style">영상 스타일</label>
+              <select id="video-style">
+                <option value="Trendy & Dynamic">Trendy & Dynamic</option>
+                <option value="Warm">Warm</option>
+                <option value="Cinematic">Cinematic</option>
+                <option value="Retro">Retro</option>
+                <option value="Minimal">Minimal</option>
+              </select>
+            </div>
+            <div>
+              <label for="duration">영상 길이</label>
+              <select id="duration">
+                <option value="15" selected>15초</option>
+                <option value="30">30초</option>
+                <option value="60">60초</option>
+              </select>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary shorts-submit" id="submit-btn">숏폼 파이프라인 실행</button>
+        </form>
+      </section>
+
+      <section class="shorts-panel">
+        <h2>생성 결과</h2>
+        <p class="shorts-panel-lead">장면별 내레이션·자막·미디어 자산이 표시됩니다.</p>
+
+        <div id="results-empty" class="shorts-results-empty">
+          <div class="shorts-results-empty-icon">🎬</div>
+          <p>아직 생성된 숏폼이 없습니다.<br>왼쪽 폼을 작성하고 실행해 보세요.</p>
+        </div>
+
+        <div id="results-panel" class="shorts-results-panel">
+          <div id="status-banner" class="shorts-status ok"></div>
+          <div id="meta-row" class="shorts-meta"></div>
+          <div id="scene-list" class="shorts-scene-list"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <p>머니인사이트 &copy; 2026 · 숏폼공장</p>
+    <p class="footer-links">
+      <a href="/about">소개</a>
+      <a href="/contact">문의</a>
+      <a href="/privacy">개인정보처리방침</a>
+      <a href="/terms">이용약관</a>
+    </p>
+  </footer>
+</div>
+
+<div class="shorts-loading" id="loading-overlay">
+  <div class="shorts-loading-box">
+    <div class="shorts-spinner"></div>
+    <p>AI 파이프라인 실행 중...</p>
+    <p class="shorts-loading-step" id="loading-step">Gemini 시나리오 생성 중...</p>
+  </div>
+</div>
+
+<script src="/static/shorts.js"></script>
+</body>
+</html>
