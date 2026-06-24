@@ -1,4 +1,5 @@
 const API_URL = "/api/v1/shorts/generate-pipeline";
+const DS = window.ShortsDeviceSave;
 
 const form = document.getElementById("generate-form");
 const loadingOverlay = document.getElementById("loading-overlay");
@@ -14,13 +15,15 @@ const sceneList = document.getElementById("scene-list");
 const submitBtn = document.getElementById("submit-btn");
 const toggleKeyBtn = document.getElementById("toggle-key");
 const apiKeyInput = document.getElementById("api-key");
-const loadExampleBtn = document.getElementById("load-example-btn");
 const businessConceptInput = document.getElementById("business-concept");
 const businessNameInput = document.getElementById("business-name");
 const keywordsInput = document.getElementById("keywords");
-
 const replicateKeyInput = document.getElementById("replicate-key");
 const toggleReplicateBtn = document.getElementById("toggle-replicate-key");
+
+let phoneRotateInterval = null;
+let currentVideoUrl = null;
+let currentVideoMeta = {};
 
 toggleReplicateBtn?.addEventListener("click", () => {
   const isPassword = replicateKeyInput.type === "password";
@@ -28,79 +31,90 @@ toggleReplicateBtn?.addEventListener("click", () => {
   toggleReplicateBtn.textContent = isPassword ? "숨기기" : "보기";
 });
 
-function appendLog(msg) {
-  loadingStep.textContent = msg;
-}
-
-let phoneRotateInterval = null;
-
 toggleKeyBtn?.addEventListener("click", () => {
   const isPassword = apiKeyInput.type === "password";
   apiKeyInput.type = isPassword ? "text" : "password";
   toggleKeyBtn.textContent = isPassword ? "숨기기" : "보기";
 });
 
-// load-example-btn logic removed
+if (DS) {
+  DS.loadApiKey(apiKeyInput);
+  DS.loadShopDraft(businessNameInput, businessConceptInput, keywordsInput);
+  businessNameInput?.addEventListener("blur", () =>
+    DS.saveShopDraft(businessNameInput, businessConceptInput, keywordsInput)
+  );
+  businessConceptInput?.addEventListener("blur", () =>
+    DS.saveShopDraft(businessNameInput, businessConceptInput, keywordsInput)
+  );
+  keywordsInput?.addEventListener("blur", () =>
+    DS.saveShopDraft(businessNameInput, businessConceptInput, keywordsInput)
+  );
+  DS.bindDownloadButton(
+    finalVideoDownload,
+    () => currentVideoUrl,
+    () => currentVideoMeta
+  );
+}
 
 form?.addEventListener("submit", async (e) => {
   e.preventDefault();
 
   const apiKey = apiKeyInput.value.trim();
   const repKey = replicateKeyInput ? replicateKeyInput.value.trim() : "";
-  
-  if (!apiKey || !repKey) {
-    alert("Google API 키와 Replicate API 키를 모두 입력해주세요.");
+
+  if (!apiKey) {
+    alert("Google API 키를 입력해주세요.");
     return;
   }
 
   const payload = {
     credentials: { api_key: apiKey },
-    replicate_api_key: repKey,
-    business_name: document.getElementById("business-name").value.trim(),
+    business_name: businessNameInput.value.trim(),
     keywords: keywordsInput ? keywordsInput.value.trim() : "",
-    business_concept: document.getElementById("business-concept").value.trim(),
+    business_concept: businessConceptInput.value.trim(),
     video_style: document.getElementById("video-style").value,
     duration_seconds: parseInt(document.getElementById("duration").value, 10),
+  };
+  if (repKey) payload.replicate_api_key = repKey;
+
+  currentVideoMeta = {
+    businessName: payload.business_name,
+    durationSeconds: payload.duration_seconds,
   };
 
   startLoading();
   submitBtn.disabled = true;
   sceneList.innerHTML = "";
-  if(finalVideoContainer) finalVideoContainer.style.display = "none";
+  currentVideoUrl = null;
+  if (finalVideoContainer) finalVideoContainer.style.display = "none";
   resultsEmpty.style.display = "none";
   resultsPanel.classList.add("visible");
   statusBanner.className = "shorts-status ok";
   statusBanner.textContent = "생성 진행 중...";
 
   try {
-    const res = await fetch("/api/v1/shorts/generate-stream", {
+    const res = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let done = false;
+    const data = await res.json();
+    if (!res.ok) {
+      const detail = data.detail;
+      const msg =
+        typeof detail === "string"
+          ? detail
+          : Array.isArray(detail)
+            ? detail.map((d) => d.msg).join(", ")
+            : "서버 오류가 발생했습니다.";
+      throw new Error(msg);
+    }
 
-    while (!done) {
-      const { value, done: doneReading } = await reader.read();
-      done = doneReading;
-      if (value) {
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const dataStr = line.substring(6);
-            try {
-              const data = JSON.parse(dataStr);
-              handleStreamEvent(data);
-            } catch (e) {
-              console.error("Parse error", e);
-            }
-          }
-        }
-      }
+    await handlePipelineResult(data);
+    if (DS) {
+      DS.saveApiKey(apiKey);
+      DS.saveShopDraft(businessNameInput, businessConceptInput, keywordsInput);
     }
   } catch (err) {
     showError(err.message);
@@ -110,46 +124,66 @@ form?.addEventListener("submit", async (e) => {
   }
 });
 
-function handleStreamEvent(data) {
-  if (data.message) appendLog(data.message);
-  
-  if (data.step === "blueprint") {
-    const scenes = data.data.scenes;
-    scenes.forEach(s => {
-      const div = document.createElement("div");
-      div.className = "shorts-scene-card";
-      div.id = `scene-card-${s.scene_number}`;
-      div.innerHTML = `
-        <div class="shorts-scene-head">
-          <span class="shorts-scene-num">Scene ${s.scene_number}</span>
-          <span class="shorts-scene-badge" id="badge-${s.scene_number}">시나리오 생성됨</span>
-        </div>
-        <div class="shorts-scene-caption">${escapeHtml(s.caption)}</div>
-        <div class="shorts-scene-narration">${escapeHtml(s.narration)}</div>
-      `;
-      sceneList.appendChild(div);
-    });
-  } else if (data.step === "image_done") {
-    const badge = document.getElementById(`badge-${data.scene_number}`);
-    if (badge) { badge.textContent = "이미지 완성"; badge.style.background = "#ff9800"; }
-  } else if (data.step === "video_done") {
-    const badge = document.getElementById(`badge-${data.scene_number}`);
-    if (badge) { badge.textContent = "비디오 완성"; badge.style.background = "#4caf50"; }
-  } else if (data.step === "complete") {
-    statusBanner.textContent = data.message || "최종 생성 완료!";
-    if (data.final_video_url && finalVideoContainer && finalVideoPlayer) {
-      finalVideoContainer.style.display = "block";
-      finalVideoPlayer.src = data.final_video_url;
-      if (finalVideoDownload) finalVideoDownload.href = data.final_video_url;
+async function handlePipelineResult(data) {
+  if (!data.final_video_url) {
+    showError("영상이 생성되지 않았습니다. 서버 로그를 확인해 주세요.");
+    return;
+  }
+
+  currentVideoUrl = data.final_video_url;
+  currentVideoMeta = {
+    businessName: data.meta?.business_name || businessNameInput?.value?.trim(),
+    durationSeconds: data.meta?.total_duration || 30,
+  };
+
+  statusBanner.textContent =
+    data.message || `${currentVideoMeta.durationSeconds}초 숏폼 생성 완료`;
+
+  const scenes = data.assets?.timeline_scenes || [];
+  sceneList.innerHTML = "";
+  scenes.forEach((s) => {
+    const div = document.createElement("div");
+    div.className = "shorts-scene-card";
+    div.id = `scene-card-${s.scene_number}`;
+    div.innerHTML = `
+      <div class="shorts-scene-head">
+        <span class="shorts-scene-num">Scene ${s.scene_number}</span>
+        <span class="shorts-scene-badge">렌더 완료</span>
+      </div>
+      <div class="shorts-scene-caption">${escapeHtml(s.caption)}</div>
+      <div class="shorts-scene-narration">${escapeHtml(s.narration)}</div>
+    `;
+    sceneList.appendChild(div);
+  });
+
+  if (finalVideoContainer && finalVideoPlayer) {
+    finalVideoContainer.style.display = "block";
+    const blobUrl = DS?.getLastBlobUrl?.();
+    finalVideoPlayer.src = blobUrl || data.final_video_url;
+  }
+
+  if (scenes.length) startPhonePreview(scenes);
+
+  if (DS) {
+    try {
+      const result = await DS.saveVideoToDevice(data.final_video_url, currentVideoMeta);
+      if (result.method === "download") {
+        statusBanner.textContent += " · 기기에 저장됨";
+        if (finalVideoPlayer && result.blobUrl) {
+          finalVideoPlayer.src = result.blobUrl;
+        }
+      } else if (result.method === "share") {
+        statusBanner.textContent += " · 공유 메뉴에서 저장하세요";
+      }
+    } catch (err) {
+      statusBanner.textContent += ` · 저장 실패: ${err.message}`;
     }
-  } else if (data.step === "error") {
-    showError(data.message);
   }
 }
 
 function startLoading() {
   loadingOverlay.classList.add("visible");
-  appendLog("시나리오 작성 시작...");
+  loadingStep.textContent = "시나리오 작성 시작...";
 }
 
 function stopLoading() {
@@ -165,8 +199,6 @@ function showError(message) {
   sceneList.innerHTML = "";
   if (finalVideoContainer) finalVideoContainer.style.display = "none";
 }
-
-// showResults is deprecated due to streaming
 
 function startPhonePreview(scenes) {
   const screen = document.getElementById("phone-screen");

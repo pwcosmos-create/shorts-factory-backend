@@ -62,7 +62,7 @@
               <input type="password" id="api-key" placeholder="AIza..." autocomplete="off" required />
               <button type="button" class="toggle-key" id="toggle-key">보기</button>
             </div>
-            <p class="byok-note">키는 브라우저에서 API로만 전송되며 서버에 저장되지 않습니다.</p>
+            <p class="byok-note">키·완성 영상은 서버에 저장되지 않으며, 이 기기에만 기억·저장됩니다.</p>
           </div>
 
           <div class="form-group">
@@ -112,6 +112,14 @@
         <div id="results-panel" class="results-panel">
           <div id="status-banner" class="status-banner"></div>
           <div id="meta-row" class="meta-row"></div>
+          <div id="final-video-container" style="display:none; margin: 1.5rem 0; text-align: center;">
+            <h3 style="margin-bottom: 0.75rem; font-size: 1rem;">완성된 숏폼 영상</h3>
+            <video id="final-video-player" controls playsinline style="width: 100%; max-width: 280px; border-radius: 12px;"></video>
+            <p style="margin-top: 0.75rem;">
+              <button type="button" id="final-video-download" class="btn-primary" style="border:none;cursor:pointer;padding:0.5rem 1rem;">기기에 다시 저장</button>
+            </p>
+            <p class="byok-note" style="margin-top:0.5rem;">생성 완료 시 자동 저장 · 휴대폰은 공유 → 파일에 저장</p>
+          </div>
           <div id="scene-list" class="scene-list"></div>
         </div>
       </div>
@@ -130,6 +138,7 @@
     </div>
   </div>
 
+  <script src="/static/js/device-save.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>

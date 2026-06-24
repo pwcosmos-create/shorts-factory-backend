@@ -6,7 +6,7 @@ import base64
 import asyncio
 import httpx
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -24,6 +24,11 @@ app = FastAPI(
 
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/api/v1/shorts/health")
+async def shorts_health():
+    return {"status": "ok", "service": "shorts-factory", "pipeline": "generate-pipeline"}
 
 
 @app.get("/")
@@ -49,7 +54,7 @@ class ConceptExampleRequest(BaseModel):
 
 class GenerateRequest(BaseModel):
     credentials: UserCredentials
-    replicate_api_key: str = Field(..., description="Replicate API 키")
+    replicate_api_key: Optional[str] = Field(None, description="Replicate API 키 (선택, 영상 변환용)")
     business_name: str = Field(..., description="매장명")
     keywords: Optional[str] = Field(None, description="선택적 핵심 키워드")
     business_concept: str = Field(..., description="매장 컨셉")
@@ -78,31 +83,93 @@ class ShortsEngine:
         self.replicate_api_key = replicate_api_key
         self.client = genai.Client(api_key=self.google_api_key)
 
-    async def generate_blueprint(self, name: str, concept: str, style: str, duration: int, keywords: Optional[str] = None) -> ShortsBlueprint:
+    def _fallback_blueprint(
+        self, name: str, concept: str, style: str, duration: int
+    ) -> ShortsBlueprint:
+        """API 실패 시에도 30초 숏폼에 맞는 다장면 시나리오를 반환합니다."""
+        if duration <= 15:
+            ratios = [0.35, 0.35, 0.30]
+            narrations = [
+                f"안녕하세요, {name}입니다.",
+                f"{concept} — 맛과 품질을 자신합니다.",
+                "지금 바로 방문해 보세요!",
+            ]
+            captions = ["우리 가게를 소개합니다", "시그니처 메뉴", "오늘의 추천"]
+        else:
+            ratios = [0.20, 0.30, 0.30, 0.20]
+            narrations = [
+                f"{name}, 잠깐만 주목해 주세요.",
+                f"저희는 {concept}을(를) 자랑합니다.",
+                "정성과 맛, 그리고 합리적인 가격까지.",
+                "오늘 꼭 한번 들러 주세요!",
+            ]
+            captions = ["오프닝", "대표 메뉴", "매장 분위기", "방문 유도"]
+
+        scenes = [
+            SceneScript(
+                scene_number=i + 1,
+                duration_ratio=ratios[i],
+                narration=narrations[i],
+                caption=captions[i],
+                imagen_prompt=(
+                    f"Vertical 9:16 cinematic food photography, {concept}, "
+                    f"{style} style, scene {i + 1}, 8k, appetizing"
+                ),
+                veo_prompt="Slow cinematic camera movement, vertical video",
+            )
+            for i in range(len(ratios))
+        ]
+        return ShortsBlueprint(
+            bgm_lyria_prompt=f"Upbeat {style} background music for a local shop promo, 30 seconds",
+            scenes=scenes,
+        )
+
+    def _normalize_blueprint(self, blueprint: ShortsBlueprint) -> ShortsBlueprint:
+        if not blueprint.scenes:
+            raise ValueError("시나리오에 장면이 없습니다.")
+        total = sum(s.duration_ratio for s in blueprint.scenes)
+        if total <= 0:
+            equal = 1.0 / len(blueprint.scenes)
+            for s in blueprint.scenes:
+                s.duration_ratio = equal
+        else:
+            for s in blueprint.scenes:
+                s.duration_ratio = s.duration_ratio / total
+        return blueprint
+
+    async def generate_blueprint(
+        self,
+        name: str,
+        concept: str,
+        style: str,
+        duration: int,
+        keywords: Optional[str] = None,
+    ) -> ShortsBlueprint:
+        scene_count = 4 if duration >= 30 else 3
         try:
-            prompt = f"Create a short-form video script blueprint for a restaurant named '{name}' specializing in '{concept}'. Style: {style}."
-            if keywords: prompt += f" Highlight keywords: {keywords}."
+            prompt = (
+                f"Create a {duration}-second vertical short-form video script for a local business "
+                f"named '{name}' about '{concept}'. Style: {style}. "
+                f"Use exactly {scene_count} scenes. duration_ratio values MUST sum to 1.0. "
+                f"Narration and captions MUST be in Korean. "
+                f"Each imagen_prompt MUST mention 9:16 vertical aspect ratio."
+            )
+            if keywords:
+                prompt += f" Highlight keywords: {keywords}."
             response = self.client.models.generate_content(
-                model='gemini-2.5-flash',
+                model="gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=ShortsBlueprint,
-                    temperature=0.7
-                )
+                    temperature=0.7,
+                ),
             )
-            return ShortsBlueprint.model_validate_json(response.text)
+            blueprint = ShortsBlueprint.model_validate_json(response.text)
+            return self._normalize_blueprint(blueprint)
         except Exception as e:
             print(f"[Fallback] Gemini API 에러: {e}")
-            scenes = [
-                SceneScript(
-                    scene_number=1, duration_ratio=0.3,
-                    narration=f"이곳 바로 {name}입니다.", caption="환상적인 비주얼!",
-                    imagen_prompt=f"Cinematic close-up of {concept}, 8k, aspect ratio 9:16, {style} style.",
-                    veo_prompt="Slow motion zooming in."
-                )
-            ]
-            return ShortsBlueprint(bgm_lyria_prompt="A trendy lo-fi hip-hop track.", scenes=scenes)
+            return self._fallback_blueprint(name, concept, style, duration)
 
     async def generate_imagen_asset(self, prompt: str) -> str:
         try:
@@ -153,7 +220,94 @@ class ShortsEngine:
             return "MOCK_AUDIO"
 
 # ---------------------------------------------------------------------------
-# 3. 실시간 스트리밍 엔드포인트 (SSE)
+# 3. 파이프라인 실행 (공통 로직)
+# ---------------------------------------------------------------------------
+
+async def execute_shorts_pipeline(request: GenerateRequest) -> dict:
+    replicate_key = (request.replicate_api_key or "").strip()
+    engine = ShortsEngine(request.credentials.api_key, replicate_key)
+
+    blueprint = await engine.generate_blueprint(
+        name=request.business_name,
+        concept=request.business_concept,
+        style=request.video_style,
+        duration=request.duration_seconds,
+        keywords=request.keywords,
+    )
+
+    bgm_bytes = await engine.generate_lyria_bgm(
+        blueprint.bgm_lyria_prompt, request.duration_seconds
+    )
+
+    generated_scenes_assets = []
+    timeline_scenes = []
+
+    for scene in blueprint.scenes:
+        img_asset = await engine.generate_imagen_asset(scene.imagen_prompt)
+
+        video_asset = img_asset
+        if scene.veo_prompt and replicate_key and img_asset != "MOCK_IMAGE":
+            try:
+                video_asset = await engine.generate_replicate_video(
+                    img_asset, scene.veo_prompt
+                )
+            except Exception as e:
+                print(f"[Skip] Replicate 장면 {scene.scene_number}: {e}")
+
+        generated_scenes_assets.append({
+            "scene_number": scene.scene_number,
+            "narration": scene.narration,
+            "caption": scene.caption,
+            "duration_ratio": scene.duration_ratio,
+            "image_data_preview": img_asset,
+            "video_data_render": video_asset,
+        })
+        timeline_scenes.append({
+            "scene_number": scene.scene_number,
+            "caption": scene.caption,
+            "narration": scene.narration,
+        })
+
+    final_video_url = None
+    try:
+        assembler = VideoAssembler()
+        final_video_url = assembler.assemble(
+            bgm_bytes,
+            generated_scenes_assets,
+            total_duration_seconds=request.duration_seconds,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"30초 영상 조립 실패: {e}. FFmpeg 설치 여부를 확인해 주세요.",
+        ) from e
+
+    if not final_video_url:
+        raise HTTPException(status_code=500, detail="영상 파일이 생성되지 않았습니다.")
+
+    return {
+        "message": f"{request.duration_seconds}초 숏폼 영상 생성 완료",
+        "meta": {
+            "business_name": request.business_name,
+            "style": request.video_style,
+            "total_duration": request.duration_seconds,
+        },
+        "assets": {"timeline_scenes": timeline_scenes},
+        "final_video_url": final_video_url,
+    }
+
+
+@app.post("/api/v1/shorts/generate-pipeline")
+async def run_shorts_pipeline(request: GenerateRequest):
+    """coupax 스튜디오 UI가 호출하는 동기 JSON 엔드포인트."""
+    try:
+        return await execute_shorts_pipeline(request)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# 4. 실시간 스트리밍 엔드포인트 (SSE)
 # ---------------------------------------------------------------------------
 
 @app.post("/api/v1/shorts/generate-stream")
@@ -161,52 +315,67 @@ async def run_shorts_stream(request: GenerateRequest):
     async def event_generator():
         try:
             yield f"data: {json.dumps({'step': 'init', 'message': '시나리오 작성 중...'})}\n\n"
-            
-            engine = ShortsEngine(request.credentials.api_key, request.replicate_api_key)
+
+            replicate_key = (request.replicate_api_key or "").strip()
+            engine = ShortsEngine(request.credentials.api_key, replicate_key)
             blueprint = await engine.generate_blueprint(
                 name=request.business_name,
                 concept=request.business_concept,
                 style=request.video_style,
                 duration=request.duration_seconds,
-                keywords=request.keywords
+                keywords=request.keywords,
             )
-            
+
             yield f"data: {json.dumps({'step': 'blueprint', 'data': blueprint.model_dump(), 'message': '시나리오 작성 완료. 이미지 생성 중...'})}\n\n"
-            
-            bgm_bytes = await engine.generate_lyria_bgm(blueprint.bgm_lyria_prompt, request.duration_seconds)
-            
+
+            bgm_bytes = await engine.generate_lyria_bgm(
+                blueprint.bgm_lyria_prompt, request.duration_seconds
+            )
+
             generated_scenes_assets = []
             for scene in blueprint.scenes:
                 yield f"data: {json.dumps({'step': 'scene_start', 'scene_number': scene.scene_number, 'message': f'장면 {scene.scene_number} 이미지 생성 중...'})}\n\n"
-                
+
                 img_asset = await engine.generate_imagen_asset(scene.imagen_prompt)
                 yield f"data: {json.dumps({'step': 'image_done', 'scene_number': scene.scene_number, 'message': f'장면 {scene.scene_number} 비디오 변환 중...'})}\n\n"
-                
+
                 video_asset = img_asset
-                if scene.veo_prompt and request.replicate_api_key:
+                if scene.veo_prompt and replicate_key and img_asset != "MOCK_IMAGE":
                     try:
-                        video_asset = await engine.generate_replicate_video(img_asset, scene.veo_prompt)
+                        video_asset = await engine.generate_replicate_video(
+                            img_asset, scene.veo_prompt
+                        )
                         yield f"data: {json.dumps({'step': 'video_done', 'scene_number': scene.scene_number, 'message': f'장면 {scene.scene_number} 비디오 생성 완료'})}\n\n"
                     except Exception as e:
                         yield f"data: {json.dumps({'step': 'video_failed', 'scene_number': scene.scene_number, 'error': str(e)})}\n\n"
-                
+
                 generated_scenes_assets.append({
                     "scene_number": scene.scene_number,
                     "narration": scene.narration,
                     "caption": scene.caption,
+                    "duration_ratio": scene.duration_ratio,
                     "image_data_preview": img_asset,
-                    "video_data_render": video_asset
+                    "video_data_render": video_asset,
                 })
-            
+
             yield f"data: {json.dumps({'step': 'assembling', 'message': '모든 클립 생성 완료. 최종 영상 병합 중...'})}\n\n"
-            
-            assembler = VideoAssembler()
-            final_video_url = assembler.assemble(bgm_bytes, generated_scenes_assets)
-            
-            yield f"data: {json.dumps({'step': 'complete', 'final_video_url': final_video_url, 'message': '최종 영상 생성 완료!'})}\n\n"
+
+            final_video_url = None
+            try:
+                assembler = VideoAssembler()
+                final_video_url = assembler.assemble(
+                    bgm_bytes,
+                    generated_scenes_assets,
+                    total_duration_seconds=request.duration_seconds,
+                )
+            except Exception as e:
+                yield f"data: {json.dumps({'step': 'error', 'message': f'영상 조립 실패: {e}'})}\n\n"
+                return
+
+            yield f"data: {json.dumps({'step': 'complete', 'final_video_url': final_video_url, 'message': f'{request.duration_seconds}초 숏폼 영상 생성 완료!'})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'step': 'error', 'message': str(e)})}\n\n"
-            
+
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.post("/api/v1/shorts/generate-concept-example")

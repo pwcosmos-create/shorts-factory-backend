@@ -105,6 +105,14 @@
         <div id="results-panel" class="shorts-results-panel">
           <div id="status-banner" class="shorts-status ok"></div>
           <div id="meta-row" class="shorts-meta"></div>
+          <div id="final-video-container" style="display:none; margin: 20px 0; text-align: center;">
+            <h3 style="margin-bottom: 10px; font-size: 1.1rem;">완성된 숏폼 영상</h3>
+            <video id="final-video-player" controls playsinline style="width: 100%; max-width: 320px; border-radius: 12px;"></video>
+            <p style="margin-top:10px;">
+              <button type="button" id="final-video-download" class="btn btn-primary">기기에 다시 저장</button>
+            </p>
+            <p class="shorts-note">생성 직후 기기에 자동 저장 · 휴대폰은 공유 → 파일에 저장</p>
+          </div>
           <div id="scene-list" class="shorts-scene-list"></div>
         </div>
       </section>
@@ -130,6 +138,7 @@
   </div>
 </div>
 
+<script src="/static/device-save.js"></script>
 <script src="/static/shorts.js"></script>
 </body>
 </html>
