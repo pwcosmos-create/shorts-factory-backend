@@ -86,24 +86,24 @@ class ShortsEngine:
     def _fallback_blueprint(
         self, name: str, concept: str, style: str, duration: int
     ) -> ShortsBlueprint:
-        """API 실패 시에도 30초 숏폼에 맞는 다장면 시나리오를 반환합니다."""
+        """API 실패 시에도 쿠팡 파트너스 목적에 부합하는 다장면 폴백 시나리오를 반환합니다."""
         if duration <= 15:
-            ratios = [0.35, 0.35, 0.30]
+            ratios = [0.35, 0.40, 0.25]
             narrations = [
-                f"안녕하세요, {name}입니다.",
-                f"{concept} — 맛과 품질을 자신합니다.",
-                "지금 바로 방문해 보세요!",
+                f"요즘 난리난 {name}, 대체 왜 이렇게 핫할까요?",
+                f"바로 {concept} 때문입니다. 가성비와 퀄리티를 모두 잡았습니다.",
+                "고정 댓글 링크에서 한정 수량 최저가 혜택을 지금 확인해 보세요!",
             ]
-            captions = ["우리 가게를 소개합니다", "시그니처 메뉴", "오늘의 추천"]
+            captions = ["요즘 대세 추천템", "핵심 장점 정리", "댓글에서 최저가 확인"]
         else:
-            ratios = [0.20, 0.30, 0.30, 0.20]
+            ratios = [0.25, 0.30, 0.25, 0.20]
             narrations = [
-                f"{name}, 잠깐만 주목해 주세요.",
-                f"저희는 {concept}을(를) 자랑합니다.",
-                "정성과 맛, 그리고 합리적인 가격까지.",
-                "오늘 꼭 한번 들러 주세요!",
+                f"돈 낭비 없는 {name} 선택 가이드, 딱 30초만 집중해 주세요.",
+                f"첫 번째 핵심 소구점은 {concept}입니다.",
+                "사용자들의 실제 극찬 후기와 가성비까지 철저히 검증 완료했습니다.",
+                "영상 하단 고정 댓글의 제휴 링크에서 특별 할인가로 만나보세요!",
             ]
-            captions = ["오프닝", "대표 메뉴", "매장 분위기", "방문 유도"]
+            captions = ["실패 없는 선택", "독보적인 강점", "사용자 극찬 후기", "댓글에서 최저가 확인"]
 
         scenes = [
             SceneScript(
@@ -112,15 +112,15 @@ class ShortsEngine:
                 narration=narrations[i],
                 caption=captions[i],
                 imagen_prompt=(
-                    f"Vertical 9:16 cinematic food photography, {concept}, "
-                    f"{style} style, scene {i + 1}, 8k, appetizing"
+                    f"Vertical 9:16 high-quality cinematic product photography of {name}, "
+                    f"{style} style, showcasing {concept}, scene {i + 1}, 8k resolution"
                 ),
-                veo_prompt="Slow cinematic camera movement, vertical video",
+                veo_prompt="Slow elegant panning camera movement, focus on details, vertical video",
             )
             for i in range(len(ratios))
         ]
         return ShortsBlueprint(
-            bgm_lyria_prompt=f"Upbeat {style} background music for a local shop promo, 30 seconds",
+            bgm_lyria_prompt=f"Upbeat energetic {style} background music for online product recommendation video, {duration} seconds",
             scenes=scenes,
         )
 
@@ -146,16 +146,68 @@ class ShortsEngine:
         keywords: Optional[str] = None,
     ) -> ShortsBlueprint:
         scene_count = 4 if duration >= 30 else 3
+        
+        # PAOF 원칙 및 쿠팡 파트너스 홍보 목적에 맞춘 고효율 카피라이팅 프롬프트 정의
+        persona = (
+            "너는 시청자 유지율 60% 이상을 자랑하고 쿠팡 파트너스 구매 전환율을 극대화하는 "
+            "상위 1% 숏폼 콘텐츠 크리에이터이자 전문 카피라이터야."
+        )
+        objective = (
+            f"홍보할 상품명은 '{name}'이고, 제품 컨셉 및 소구점은 '{concept}'이야. "
+            f"목표는 시청자를 첫 3초 이내에 확실히 사로잡고(HOOK), 상품의 핵심 셀링 포인트를 직관적으로 각인시켜, "
+            f"마지막에 댓글창이나 프로필의 쿠팡 파트너스 제휴 링크를 클릭(CTA)하도록 만드는 {duration}초 분량의 9:16 세로형 숏폼 대본을 작성하는 거야."
+        )
+        
+        if scene_count == 3:
+            scene_guidelines = [
+                "1장면 (강력한 HOOK 인트로): 시청자의 일상적 문제나 궁금증을 정확히 짚어내고 해결책을 제시하며 영상의 기대감을 높이는 인트로 (시간 비율 약 30%)",
+                "2장면 (핵심 본문): 제품의 가장 큰 셀링 포인트와 실제 사용 시의 혜택/효과를 구체적인 예시와 함께 강조 (시간 비율 약 40%)",
+                "3장면 (클로징 및 CTA): 전체 내용을 임팩트 있게 요약하고, '댓글 링크에서 최저가로 바로 확인해 보세요!'와 같이 제휴 링크 클릭을 자연스럽게 유도하는 마무리 (시간 비율 약 30%)"
+            ]
+        else:
+            scene_guidelines = [
+                "1장면 (강력한 HOOK 인트로): 시청자의 시선을 끄는 충격적이거나 일상적인 문제 제기 및 호기심 자극 (시간 비율 약 20%)",
+                "2장면 (본문 소주제 1): 제품의 시그니처 특징 및 핵심 혜택 제시 (시간 비율 약 30%)",
+                "3장면 (본문 소주제 2): 실제 체감되는 리스크 감소율이나 가성비, 실사용 장점 강조 (시간 비율 약 30%)",
+                "4장면 (클로징 및 CTA): 요약과 함께 댓글/프로필의 쿠팡 파트너스 링크 클릭을 유도하는 강력한 행동 촉구 (시간 비율 약 20%)"
+            ]
+            
+        # AI 영상 퀄리티를 높이기 위한 '6단계 프롬프트 공식' 및 '시네마틱 연출 치트키' 강제화 규칙
+        visual_rules = (
+            "각 장면의 imagen_prompt(이미지 생성용 영어 프롬프트)는 반드시 아래의 [6단계 프롬프트 공식]에 맞추어 쉼표(,)로 구분된 단어들로 작성해줘:\n"
+            "1. [Style]: 영상의 장르 및 화풍 정의 (예: 'Cinematic film still, Shot on 35mm film, Soft natural lighting' 또는 'Disney Pixar 3D animation style')\n"
+            "2. [Subject]: 주인공/제품 상세 묘사 (의인화된 동물의 경우 'Anthropomorphic [animal]' 필수 사용, 제품 로고/텍스트 노출 시 'text \"[원하는문구]\" written on [위치]' 형식 적용, 한글 텍스트인 경우 뒤에 ', written in Korean Hangul' 추가)\n"
+            "3. [Action & Pose]: 캐릭터의 동작 및 구체적인 모션 (예: 'Slow zoom in', 'Looking at the camera', 'Cooking soup')\n"
+            "4. [Background & Lighting]: 주변 환경과 조명/분위기 (예: 'Sunny cafe, Soft natural lighting' 또는 'Neon lights, Cyberpunk atmosphere')\n"
+            "5. [Camera Angle]: 카메라 앵글 및 연출 (예: 'Drone shot', 'Eye-level', 'Extreme close-up', 'Low angle shot')\n"
+            "6. [Texture & Quality]: 마무리 퀄리티 질감 (예: 'Authentic skin texture', 'Fluffy fur texture', 'High quality render')\n\n"
+            "또한, 다음 지침을 반드시 준수해줘:\n"
+            "- veo_prompt(비디오 변환용 영어 프롬프트)는 정지된 이미지에 자연스럽고 역동적인 무빙을 입힐 수 있도록 구체적인 카메라 모션 키워드만으로 작성해줘. (예: 'Slow zoom in', 'Camera tracking shot', 'Slow elegant panning')\n"
+            "- 각 imagen_prompt는 항상 '9:16 vertical aspect ratio'를 포함해야 해.\n"
+            "- [★중요 - 텍스트 노이즈 방지]: 이미지 생성 시 AI가 멋대로 이상한 글자나 기호, 악보 등을 그리는 것을 방지하기 위해, 의도적으로 텍스트 노출 지침(text \"...\")을 넣은 경우를 제외하고는 모든 imagen_prompt 끝에 반드시 다음 세 줄의 네거티브 지침을 추가해줘:\n"
+            "  'No on-screen text.\n"
+            "  No subtitles.\n"
+            "  No background music.'"
+        )
+        
+        action = (
+            f"규격에 맞추어 정확히 {scene_count}개의 장면(scenes)으로 구성해줘. "
+            "각 장면의 duration_ratio의 합은 반드시 1.0이 되어야 해. "
+            "자막(caption)은 화면에 들어가는 짧고 강렬한 텍스트로 작성하고, 나레이션(narration)은 TTS로 읽기 좋은 자연스러운 한국어 구어체로 써줘."
+        )
+        
+        prompt = (
+            f"[Persona]\n{persona}\n\n"
+            f"[Objective]\n{objective}\n\n"
+            f"[Scene Guidelines]\n" + "\n".join(scene_guidelines) + "\n\n"
+            f"[Visual & Motion Rules]\n{visual_rules}\n\n"
+            f"[Action & Format]\n{action}"
+        )
+        
+        if keywords:
+            prompt += f"\n\n[Additional Keywords]\nHighlight these keywords in the script: {keywords}."
+            
         try:
-            prompt = (
-                f"Create a {duration}-second vertical short-form video script for a local business "
-                f"named '{name}' about '{concept}'. Style: {style}. "
-                f"Use exactly {scene_count} scenes. duration_ratio values MUST sum to 1.0. "
-                f"Narration and captions MUST be in Korean. "
-                f"Each imagen_prompt MUST mention 9:16 vertical aspect ratio."
-            )
-            if keywords:
-                prompt += f" Highlight keywords: {keywords}."
             response = self.client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt,
