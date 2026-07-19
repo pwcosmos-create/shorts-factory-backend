@@ -1,10 +1,13 @@
 # 🚀 소상공인 숏폼 완전 자동화 파이프라인 (FastAPI 백엔드 마스터 소스)
-# 핵심 기술: Structured Output(구조화 데이터), Imagen 3(9:16 최적화), Luma Ray(연속성 비디오), Lyria(저작권 프리 오디오)
+# 핵심 기술: Structured Output(오픈소스 LLM), Flux Schnell(9:16 이미지), Luma Ray(연속성 비디오), 로컬 BGM
 
 import json
 import base64
 import asyncio
 import httpx
+import os
+import random
+import re
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
@@ -12,8 +15,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
-from google import genai
-from google.genai import types
 from assembler import VideoAssembler
 
 app = FastAPI(
@@ -81,7 +82,11 @@ class ShortsEngine:
     def __init__(self, google_api_key: str, replicate_api_key: str):
         self.google_api_key = google_api_key
         self.replicate_api_key = replicate_api_key
-        self.client = genai.Client(api_key=self.google_api_key)
+        self.hf_api_key = (
+            os.environ.get("HF_API_KEY") 
+            or os.environ.get("HF_TOKEN") 
+            or google_api_key
+        ).strip()
 
     def _fallback_blueprint(
         self, name: str, concept: str, style: str, duration: int
@@ -207,34 +212,108 @@ class ShortsEngine:
         if keywords:
             prompt += f"\n\n[Additional Keywords]\nHighlight these keywords in the script: {keywords}."
             
-        try:
-            response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=ShortsBlueprint,
-                    temperature=0.7,
-                ),
-            )
-            blueprint = ShortsBlueprint.model_validate_json(response.text)
-            return self._normalize_blueprint(blueprint)
-        except Exception as e:
-            print(f"[Fallback] Gemini API 에러: {e}")
-            return self._fallback_blueprint(name, concept, style, duration)
+        system_instruction = (
+            "You are a professional marketing copywriter and short-form video planner. "
+            "You must respond ONLY with a valid raw JSON object. Do not wrap the JSON in markdown blocks like ```json ... ```. "
+            "The JSON object must strictly conform to the following schema:\n"
+            "{\n"
+            "  \"bgm_lyria_prompt\": \"Background music prompt describing style, tempo, instruments\",\n"
+            "  \"scenes\": [\n"
+            "    {\n"
+            "      \"scene_number\": 1,\n"
+            "      \"duration_ratio\": 0.25,\n"
+            "      \"narration\": \"Korean narration text matching the time allocation\",\n"
+            "      \"caption\": \"Short punchy Korean caption text to be displayed on screen\",\n"
+            "      \"imagen_prompt\": \"Detailed English image prompt following the 6-step formula\",\n"
+            "      \"veo_prompt\": \"English video motion prompt describing camera movement\"\n"
+            "    }\n"
+            "  ]\n"
+            "}"
+        )
+        
+        payload = {
+            "inputs": f"<|im_start|>system\n{system_instruction}\n<|im_end|>\n<|im_start|>user\n{prompt}\n<|im_end|>\n<|im_start|>assistant\n",
+            "parameters": {
+                "temperature": 0.7,
+                "max_new_tokens": 1500
+            }
+        }
+        
+        models = [
+            "Qwen/Qwen2.5-72B-Instruct",
+            "Qwen/Qwen2.5-14B-Instruct",
+            "Qwen/Qwen2.5-7B-Instruct",
+            "meta-llama/Llama-3.1-8B-Instruct"
+        ]
+        
+        headers = {"Authorization": f"Bearer {self.hf_api_key}"}
+        
+        for model in models:
+            url = f"https://api-inference.huggingface.co/models/{model}"
+            try:
+                async with httpx.AsyncClient() as client:
+                    res = await client.post(url, json=payload, headers=headers, timeout=60)
+                    if res.status_code == 200:
+                        res_data = res.json()
+                        text = res_data[0]["generated_text"]
+                        
+                        # Extract assistant response
+                        if "<|im_start|>assistant" in text:
+                            text = text.split("<|im_start|>assistant")[-1]
+                        elif prompt in text:
+                            text = text.replace(prompt, "")
+                            
+                        # Clean up markdown JSON wrapper
+                        text = text.strip()
+                        if text.startswith("```json"):
+                            text = text[7:]
+                        elif text.startswith("```"):
+                            text = text[3:]
+                        if text.endswith("```"):
+                            text = text[:-3]
+                        text = text.strip()
+                        
+                        # Find the first '{' and last '}' to strip any garbage text
+                        start = text.find("{")
+                        end = text.rfind("}")
+                        if start != -1 and end != -1:
+                            text = text[start:end+1]
+                            
+                        blueprint = ShortsBlueprint.model_validate_json(text)
+                        return self._normalize_blueprint(blueprint)
+            except Exception as e:
+                print(f"[Fallback] Hugging Face {model} 대본 생성 실패: {e}")
+                
+        # All models failed, return fallback
+        return self._fallback_blueprint(name, concept, style, duration)
 
     async def generate_imagen_asset(self, prompt: str) -> str:
-        try:
-            result = self.client.models.generate_images(
-                model='imagen-3.0-generate-002', prompt=prompt, 
-                config=types.GenerateImagesConfig(aspect_ratio="9:16", number_of_images=1)
-            )
-            return base64.b64encode(result.generated_images[0].image.image_bytes).decode('utf-8')
-        except Exception as e:
-            print(f"[Fallback] Imagen 에러: {e}")
-            return "MOCK_IMAGE"
+        models = [
+            "black-forest-labs/FLUX.1-schnell",
+            "stabilityai/stable-diffusion-xl-base-1.0"
+        ]
+        headers = {"Authorization": f"Bearer {self.hf_api_key}"}
+        
+        for model in models:
+            url = f"https://api-inference.huggingface.co/models/{model}"
+            try:
+                async with httpx.AsyncClient() as client:
+                    res = await client.post(
+                        url,
+                        json={"inputs": prompt},
+                        headers=headers,
+                        timeout=45
+                    )
+                    if res.status_code == 200:
+                        return base64.b64encode(res.content).decode('utf-8')
+            except Exception as e:
+                print(f"[Fallback] Hugging Face {model} 이미지 생성 실패: {e}")
+        
+        return "MOCK_IMAGE"
 
     async def generate_replicate_video(self, image_b64: str, prompt: str) -> str:
+        if not self.replicate_api_key:
+            return image_b64
         data_uri = f"data:image/png;base64,{image_b64}"
         async with httpx.AsyncClient() as client:
             headers = {"Authorization": f"Bearer {self.replicate_api_key}", "Content-Type": "application/json"}
@@ -262,13 +341,21 @@ class ShortsEngine:
                 raise Exception(f"Replicate 실패: {pred.get('error')}")
 
     async def generate_lyria_bgm(self, prompt: str, duration: int) -> str:
+        # static/bgm 폴더에서 무작위 오디오 파일 로드
+        bgm_dir = STATIC_DIR / "bgm"
+        if not bgm_dir.exists():
+            bgm_dir.mkdir(parents=True, exist_ok=True)
+            
+        bgm_files = list(bgm_dir.glob("*.mp3"))
+        if not bgm_files:
+            return "MOCK_AUDIO"
+            
+        selected_bgm = random.choice(bgm_files)
         try:
-            audio_result = self.client.models.generate_audio(
-                model='lyria-3-pro-preview', prompt=prompt, 
-                config=types.GenerateAudioConfig(duration_seconds=duration)
-            )
-            return base64.b64encode(audio_result.audio_bytes).decode('utf-8')
+            with open(selected_bgm, "rb") as f:
+                return base64.b64encode(f.read()).decode('utf-8')
         except Exception as e:
+            print(f"로컬 BGM 로드 실패: {e}")
             return "MOCK_AUDIO"
 
 # ---------------------------------------------------------------------------
@@ -432,15 +519,46 @@ async def run_shorts_stream(request: GenerateRequest):
 
 @app.post("/api/v1/shorts/generate-concept-example")
 async def generate_concept_example(request: ConceptExampleRequest):
-    try:
-        client = genai.Client(api_key=request.credentials.api_key)
-        prompt = f"사용자가 '{request.business_name}'라는 매장 이름으로 숏폼 비디오를 만들려고 합니다."
-        if request.keywords: prompt += f" 핵심 키워드: '{request.keywords}'"
-        prompt += " 이 매장의 '컨셉 및 대표 메뉴' 란에 들어갈 만한 아주 구체적이고 매력적인 홍보용 작성 예시(3~5문장)를 생성해주세요. 텍스트만 반환하세요."
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        return {"example": response.text.strip()}
-    except Exception as e:
-        return {"example": f"[{request.business_name}]만의 특별한 컨셉을 적어주세요."}
+    hf_api_key = (
+        os.environ.get("HF_API_KEY") 
+        or os.environ.get("HF_TOKEN") 
+        or request.credentials.api_key
+    ).strip()
+    
+    prompt = f"사용자가 '{request.business_name}'라는 매장 이름으로 숏폼 비디오를 만들려고 합니다."
+    if request.keywords: 
+        prompt += f" 핵심 키워드: '{request.keywords}'"
+    prompt += " 이 매장의 '컨셉 및 대표 메뉴' 란에 들어갈 만한 아주 구체적이고 매력적인 홍보용 작성 예시(3~5문장)를 생성해주세요. 다른 설명 없이 텍스트 본문만 반환하세요."
+    
+    payload = {
+        "inputs": f"<|im_start|>system\nYou are a professional marketing copywriter. Write a clean, natural Korean promotional concept description based on the user request. Output only the description text and nothing else.\n<|im_end|>\n<|im_start|>user\n{prompt}\n<|im_end|>\n<|im_start|>assistant\n",
+        "parameters": {"temperature": 0.7, "max_new_tokens": 500}
+    }
+    
+    models = [
+        "Qwen/Qwen2.5-72B-Instruct",
+        "Qwen/Qwen2.5-14B-Instruct",
+        "Qwen/Qwen2.5-7B-Instruct",
+        "meta-llama/Llama-3.1-8B-Instruct"
+    ]
+    
+    headers = {"Authorization": f"Bearer {hf_api_key}"}
+    for model in models:
+        url = f"https://api-inference.huggingface.co/models/{model}"
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.post(url, json=payload, headers=headers, timeout=20)
+                if res.status_code == 200:
+                    text = res.json()[0]["generated_text"]
+                    if "<|im_start|>assistant" in text:
+                        text = text.split("<|im_start|>assistant")[-1]
+                    elif prompt in text:
+                        text = text.replace(prompt, "")
+                    return {"example": text.strip()}
+        except Exception as e:
+            print(f"[Concept] Hugging Face {model} 호출 실패: {e}")
+            
+    return {"example": f"[{request.business_name}]만의 특별한 컨셉을 적어주세요."}
 
 if __name__ == "__main__":
     import uvicorn
